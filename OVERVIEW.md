@@ -1,4 +1,4 @@
-# Approach to build Fianco Game Engine:
+# OVERVIEW: Building Fianco Game Engine:
 
 ## Board Representation:
 
