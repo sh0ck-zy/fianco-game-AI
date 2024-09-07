@@ -1,9 +1,16 @@
 import numpy as np
+import time
 
 
 class FiancoGame:
     def __init__(self):
         self.board = np.zeros((9, 9), dtype=int)
+        self._setup_board()
+        self.current_player = 1  # White starts
+        self.move_count = 0
+        self.ai_time = 0
+
+    def _setup_board(self):
         # Set up the black pieces (top of the board)
         self.board[0, :] = 2  # Full row of black pieces
         self.board[1, [1, 7]] = 2
@@ -16,57 +23,106 @@ class FiancoGame:
         self.board[6, [2, 6]] = 1
         self.board[5, [3, 5]] = 1
 
-        self.current_player = 1
-
     def get_possible_moves(self, player):
         moves = []
         captures = []
         for i in range(9):
             for j in range(9):
                 if self.board[i][j] == player:
-                    # Check regular moves
-                    for di, dj in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                        if player == 1:
-                            di = -di  # White moves upwards
-                        if 0 <= i + di < 9 and 0 <= j + dj < 9 and self.board[i + di][j + dj] == 0:
-                            moves.append((i, j, i + di, j + dj))
+                    # Check regular moves (forward and sideways only)
+                    directions = [(0, -1), (0, 1)]  # Sideways moves
+                    if player == 1:  # White moves up
+                        directions.append((-1, 0))
+                    else:  # Black moves down
+                        directions.append((1, 0))
 
-                    # Check capture moves
-                    for di, dj in [(2, 2), (2, -2), (-2, 2), (-2, -2)]:
-                        if player == 1:
-                            di = -di  # White moves upwards
-                        if 0 <= i + di < 9 and 0 <= j + dj < 9 and self.board[i + di][j + dj] == 0:
-                            if self.board[i + di // 2][j + dj // 2] == 3 - player:  # Opponent's piece
-                                captures.append((i, j, i + di, j + dj))
+                    for di, dj in directions:
+                        new_i, new_j = i + di, j + dj
+                        if 0 <= new_i < 9 and 0 <= new_j < 9 and self.board[new_i][new_j] == 0:
+                            moves.append((i, j, new_i, new_j))
+
+                    # Check capture moves (only forward captures)
+                    capture_directions = [(2, 2), (2, -2)] if player == 1 else [(-2, 2), (-2, -2)]
+                    for di, dj in capture_directions:
+                        new_i, new_j = i + di, j + dj
+                        mid_i, mid_j = i + di // 2, j + dj // 2
+                        if (0 <= new_i < 9 and 0 <= new_j < 9 and
+                                self.board[new_i][new_j] == 0 and
+                                self.board[mid_i][mid_j] == 3 - player):
+                            captures.append((i, j, new_i, new_j))
 
         return captures if captures else moves
 
     def make_move(self, move):
         start_i, start_j, end_i, end_j = move
-        print(f"Moving piece from ({start_i}, {start_j}) to ({end_i}, {end_j})")  # Debugging line
-        print(f"Piece at start: {self.board[start_i][start_j]}")  # Debugging line
+        self.board[end_i][end_j] = self.board[start_i][start_j]
+        self.board[start_i][start_j] = 0
 
-        self.board[end_i][end_j] = self.board[start_i][start_j]  # Move the piece
-        self.board[start_i][start_j] = 0  # Empty the starting position
-
-        if abs(start_i - end_i) == 2:  # This checks if it's a capture move
-            capture_i = (start_i + end_i) // 2
-            capture_j = (start_j + end_j) // 2
-            print(f"Captured piece at ({capture_i}, {capture_j})")  # Debugging line
-            self.board[capture_i][capture_j] = 0  # Remove the captured piece
-
-        print("Board after move:")
-        self.print_board()  # Debugging line to see the board state after each move
+        if abs(start_i - end_i) == 2:  # Capture move
+            capture_i, capture_j = (start_i + end_i) // 2, (start_j + end_j) // 2
+            self.board[capture_i][capture_j] = 0
 
         self.current_player = 3 - self.current_player
+        self.move_count += 1
 
     def is_terminal(self):
-        return 1 in self.board[0, :] or 2 in self.board[8, :]
+        # Check if any player has reached the opposite side
+        if 1 in self.board[0, :] or 2 in self.board[8, :]:
+            return True
+
+        # Check if any player has no pieces left
+        if 1 not in self.board or 2 not in self.board:
+            return True
+
+        # Check if current player has no valid moves
+        if not self.get_possible_moves(self.current_player):
+            return True
+
+        return False
+
+    def get_winner(self):
+        if 1 in self.board[0, :]:
+            return 1  # White wins
+        if 2 in self.board[8, :]:
+            return 2  # Black wins
+        if 1 not in self.board:
+            return 2  # Black wins by capturing all white pieces
+        if 2 not in self.board:
+            return 1  # White wins by capturing all black pieces
+        if not self.get_possible_moves(self.current_player):
+            return 3 - self.current_player  # Current player has no moves, so opponent wins
+        return None  # No winner yet
+
+    def validate_move(self, move):
+        start_i, start_j, end_i, end_j = move
+        player = self.current_player
+        possible_moves = self.get_possible_moves(player)
+
+        if move not in possible_moves:
+            return False
+
+        # Check for mandatory captures
+        captures = [m for m in possible_moves if abs(m[0] - m[2]) == 2]
+        if captures and move not in captures:
+            return False
+
+        return True
+
+    def validate_move(self, move):
+        possible_moves = self.get_possible_moves(self.current_player)
+        return move in possible_moves
 
     def evaluate(self):
-        # Simple evaluation: difference in piece count and advancement
+        winner = self.get_winner()
+        if winner == self.current_player:
+            return 1000
+        elif winner == 3 - self.current_player:
+            return -1000
+
+        # Count pieces and their advancement
         white_score = np.sum(self.board == 1) + np.sum(8 - np.where(self.board == 1)[0])
         black_score = np.sum(self.board == 2) + np.sum(np.where(self.board == 2)[0])
+
         return white_score - black_score if self.current_player == 1 else black_score - white_score
 
     def print_board(self):
@@ -89,12 +145,18 @@ class FiancoGame:
         print("    A   B   C   D   E   F   G   H   I")
 
 
-def convert_move_to_notation(start_i, start_j, end_i, end_j):
-    start_row = str(9 - start_i)  # Convert to row number as seen by the user
-    end_row = str(9 - end_i)
-    start_col = chr(ord('A') + start_j)  # Convert to column letter
-    end_col = chr(ord('A') + end_j)
-    return f"{start_col}{start_row} {end_col}{end_row}"
+def convert_notation_to_move(notation):
+    start, end = notation.split()
+    start_col, start_row = ord(start[0]) - ord('A'), int(start[1]) - 1
+    end_col, end_row = ord(end[0]) - ord('A'), int(end[1]) - 1
+    return (8 - start_row, start_col, 8 - end_row, end_col)
+
+
+def convert_move_to_notation(move):
+    start_i, start_j, end_i, end_j = move
+    start = chr(start_j + ord('A')) + str(9 - start_i)
+    end = chr(end_j + ord('A')) + str(9 - end_i)
+    return f"{start} {end}"
 
 
 def negamax(game, depth, alpha, beta, color):
@@ -117,17 +179,29 @@ def negamax(game, depth, alpha, beta, color):
 
 def main():
     game = FiancoGame()
+    print("Welcome to Fianco!")
+    ai_color = input("Choose AI color (W/B): ").upper()
+    ai_player = 1 if ai_color == 'W' else 2
+    human_player = 3 - ai_player
+
     print("Initial board state:")
     game.print_board()
 
+    game_start_time = time.time()
+
     while not game.is_terminal():
-        if game.current_player == 1:
-            move = input("Enter your move (e.g., A1 A2 or a1 a2): ").upper()  # Convert input to uppercase
-            start_pos, end_pos = move.split()
-            start_i, start_j = int(start_pos[1]) - 1, ord(start_pos[0]) - ord('A')
-            end_i, end_j = int(end_pos[1]) - 1, ord(end_pos[0]) - ord('A')
-            game.make_move((start_i, start_j, end_i, end_j))
+        if game.current_player == human_player:
+            while True:
+                move_notation = input("Enter your move (e.g., A1 A2): ").upper()
+                move = convert_notation_to_move(move_notation)
+                if game.validate_move(move):
+                    game.make_move(move)
+                    break
+                else:
+                    print("Invalid move. Try again.")
         else:
+            print("AI is thinking...")
+            ai_move_start_time = time.time()
             best_move = None
             best_value = float('-inf')
             for move in game.get_possible_moves(game.current_player):
@@ -140,15 +214,30 @@ def main():
                     best_value = value
                     best_move = move
 
-            # Convert the best_move to human-readable format
-            ai_move_notation = convert_move_to_notation(*best_move)
-            print(f"AI's chosen move: {ai_move_notation}")
+            ai_move_end_time = time.time()
+            ai_move_duration = ai_move_end_time - ai_move_start_time
+            game.ai_time += ai_move_duration
+
+            ai_move_notation = convert_move_to_notation(best_move)
+            print(f"AI played: {ai_move_notation}")
+            print(f"Time for this move: {ai_move_duration:.2f} seconds")
             game.make_move(best_move)
 
-        print("Board state after move:")
+        print("\nBoard state after move:")
         game.print_board()
+        print(f"Move count: {game.move_count}")
+        print(f"Total AI thinking time: {game.ai_time:.2f} seconds")
+
+        current_game_duration = time.time() - game_start_time
+        print(f"Total game duration: {current_game_duration:.2f} seconds")
 
     print("Game over!")
+    winner = "White" if game.current_player == 2 else "Black"
+    print(f"{winner} wins!")
+
+    final_game_duration = time.time() - game_start_time
+    print(f"Final game duration: {final_game_duration:.2f} seconds")
+    print(f"Final AI total thinking time: {game.ai_time:.2f} seconds")
 
 
 if __name__ == "__main__":
